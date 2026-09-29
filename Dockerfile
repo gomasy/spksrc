@@ -6,12 +6,14 @@ LABEL vcs-url="https://github.com/SynoCommunity/spksrc"
 
 ENV LANG C.UTF-8
 
-# Manage i386 arch
-RUN dpkg --add-architecture i386
-
-# Install required packages (in sync with README.rst instructions)
-# ATTENTION: the total length of the following RUN command must not exceed 1024 characters
-RUN apt update && apt install --no-install-recommends -y \
+# Manage i386 arch, add backport channel (kept for later use, e.g. -t trixie-backports),
+# install required packages (in sync with README.rst instructions) and clean up.
+# All in a single layer so that apt lists/caches do not remain in the image.
+RUN dpkg --add-architecture i386 && \
+	echo "deb http://deb.debian.org/debian trixie-backports main" > /etc/apt/sources.list.d/backports.list && \
+	printf "Package: *\nPin: release a=trixie-backports\nPin-Priority: 100\n" > /etc/apt/preferences.d/99-backports && \
+	apt-get update && \
+	apt-get install --no-install-recommends -y \
 	autoconf-archive \
 	autogen \
 	automake \
@@ -84,10 +86,7 @@ RUN apt update && apt install --no-install-recommends -y \
 	xmlto \
 	yasm \
 	zip \
-	zlib1g-dev
-
-# Python based apps
-RUN apt install --no-install-recommends -y \
+	zlib1g-dev \
 	httpie \
 	mercurial \
 	meson \
@@ -98,26 +97,10 @@ RUN apt install --no-install-recommends -y \
 	python3-pip \
 	python3-setuptools \
 	python3-virtualenv \
-	python3-yaml
-
-###
-### Keeping backport channel management for later use
-###
-
-# Add backport channel
-RUN echo "deb http://deb.debian.org/debian trixie-backports main" > /etc/apt/sources.list.d/backports.list && \
-    echo "Package: *\nPin: release a=trixie-backports\nPin-Priority: 100" > /etc/apt/preferences.d/99-backports
-
-# Update package list & install needed package from backport
-RUN apt-get update
-###RUN apt-get install -y -t trixie-backports meson
-
-# Clean-up apt db
-RUN apt clean && \
-	rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-# Update locate db
-RUN updatedb
+	python3-yaml && \
+	apt-get clean && \
+	rm -rf /var/lib/apt/lists/* /var/cache/apt/* /var/log/apt/* /var/log/dpkg.log /tmp/* /var/tmp/* && \
+	updatedb
 
 # Add user
 RUN adduser --disabled-password --gecos '' user && \
