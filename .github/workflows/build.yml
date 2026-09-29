@@ -1,0 +1,93 @@
+name: Build
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'master'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - minio
+        arch:
+          - x64-7.2
+          - aarch64-7.2
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check eligibility
+        env:
+          GH_TOKEN: ${{ secrets._GITHUB_TOKEN }}
+        run: |
+          _VARIABLE=${{ matrix.package }}_SPKVER_${{ matrix.arch }}
+          _VARIABLE=${_VARIABLE^^}
+          _VARIABLE=${_VARIABLE//[-.]/_}
+          echo "_VARIABLE=$_VARIABLE" >> $GITHUB_ENV
+          _PREVIOUS_SPKVER=$(gh variable get $_VARIABLE || true)
+          echo "_PREVIOUS_SPKVER=$_PREVIOUS_SPKVER" >> $GITHUB_ENV
+          cd spk/${{ matrix.package }}
+          _VERS=$(grep "^SPK_VERS" Makefile | awk '{print $3}')
+          _REV=$(grep "^SPK_REV" Makefile | awk '{print $3}')
+          _SPKVER=$_VERS-$_REV
+          echo "_SPKVER=$_SPKVER" >> $GITHUB_ENV
+          echo "Previous version: $_PREVIOUS_SPKVER"
+          echo "Current version: $_SPKVER"
+
+      - name: Build
+        if: ${{ env._SPKVER != env._PREVIOUS_SPKVER }}
+        run: |
+          docker run -v "$PWD:/spksrc" -w /spksrc/spk/${{ matrix.package }} --rm \
+            ghcr.io/gomasy/spksrc:latest make arch-${{ matrix.arch }}
+
+      - name: Export
+        if: ${{ env._SPKVER != env._PREVIOUS_SPKVER }}
+        run: |
+          mkdir dist
+          cp packages/${{ matrix.package }}_*.spk dist
+
+      - name: Upload artifact
+        if: ${{ env._SPKVER != env._PREVIOUS_SPKVER }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.package }}-${{ matrix.arch }}
+          path: dist/*.spk
+
+      - name: Update current version
+        if: ${{ env._SPKVER != env._PREVIOUS_SPKVER }}
+        env:
+          GH_TOKEN: ${{ secrets._GITHUB_TOKEN }}
+        run: gh variable set $_VARIABLE --body $_SPKVER
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs:
+      - build
+    steps:
+      - name: Prepare artifact
+        uses: actions/download-artifact@v8
+        with:
+          pattern: "minio-*"
+          path: dist
+          merge-multiple: true
+
+      - name: Check eligibility
+        run: echo "_PACKAGES_COUNT=$(ls dist 2>/dev/null | wc -l)" >> $GITHUB_ENV
+
+      - name: Upload packages
+        if: ${{ env._PACKAGES_COUNT > 0 }}
+        env:
+          _TOKEN: ${{ secrets._TOKEN }}
+        run: |
+          cd dist
+          ls -l
+          tar -cf ../build.tar.gz *.spk
+          cd ..
+          curl --fail-with-body --retry 3 --retry-delay 5 --retry-all-errors \
+            -H "X-Token:$_TOKEN" -H "X-Repo:spks-minio" \
+            -F build=@build.tar.gz https://api.gomasy.jp/v1/github/push
