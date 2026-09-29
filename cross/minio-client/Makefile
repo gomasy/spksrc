@@ -1,27 +1,22 @@
 PKG_NAME = minio-client
 REAL_PKG_NAME = mc
-PKG_VERS = 2025-08-13T08-35-41Z
+PKG_VERS = 2026-08-04T00-00-00Z
 PKG_RELEASE_TAG = $(subst :,-,$(PKG_VERS))
-PKG_COMMIT_ID = 7394ce0dd2a80935aded936b09fa12cbb3cb8096
+PKG_COMMIT_ID = c9708ab95d22cdf591166907176098ac2d7e165c
 PKG_EXT = tar.gz
 PKG_DIST_PREFIX = RELEASE.$(PKG_RELEASE_TAG)
 PKG_DIST_NAME = $(PKG_DIST_PREFIX).$(PKG_EXT)
-PKG_DIST_SITE = https://github.com/minio/mc/archive
+PKG_DIST_SITE = https://github.com/pgsty/mc/archive
 PKG_DIST_FILE = $(PKG_NAME)-$(PKG_DIST_NAME)
 EXTRACT_PATH = $(WORK_DIR)/src/github.com/$(REAL_PKG_NAME)
 PKG_DIR = $(REAL_PKG_NAME)-$(PKG_DIST_PREFIX)
 
-UNSUPPORTED_ARCHS = $(PPC_ARCHS)
-include ../../mk/spksrc.common.mk
-ifeq ($(findstring $(ARCH),$(ARMv5_ARCHS)),$(ARCH))
-BUILD_DEPENDS = native/go_1.23
-NATIVE_GO = native/go_1.23
-else
-BUILD_DEPENDS = native/go
-NATIVE_GO = native/go
-endif
+# requires go >= 1.26.5
+UNSUPPORTED_ARCHS = $(PPC_ARCHS) $(ARMv5_ARCHS)
 
-HOMEPAGE = https://min.io/
+BUILD_DEPENDS = native/go
+
+HOMEPAGE = https://github.com/pgsty/mc
 COMMENT  = MinIO Client (mc) provides a modern alternative to UNIX commands like ls, cat, cp, mirror, diff, find etc. It supports filesystems and Amazon S3 compatible cloud storage service (AWS Signature v2 and v4).
 LICENSE  = AGPLv3.0
 

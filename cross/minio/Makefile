@@ -1,27 +1,22 @@
 PKG_NAME = minio
-PKG_VERS = 2025-10-15T17-29-55Z
+PKG_VERS = 2026-08-04T00-00-00Z
 PKG_RELEASE_TAG = $(subst :,-,$(PKG_VERS))
-PKG_COMMIT_ID = 9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a
+PKG_COMMIT_ID = 61632bb2bf33afb13c59953a87cf9b6d84dadf16
 PKG_EXT = tar.gz
 PKG_DIST_PREFIX = RELEASE.$(PKG_RELEASE_TAG)
 PKG_DIST_NAME = $(PKG_DIST_PREFIX).$(PKG_EXT)
-PKG_DIST_SITE = https://github.com/minio/minio/archive
+PKG_DIST_SITE = https://github.com/gomasy/silo/archive
 PKG_DIST_FILE = $(PKG_NAME)-$(PKG_DIST_NAME)
 EXTRACT_PATH = $(WORK_DIR)/src/github.com/$(PKG_NAME)
-PKG_DIR = $(PKG_NAME)-$(PKG_DIST_PREFIX)
+PKG_DIR = silo-$(PKG_DIST_PREFIX)
 
-UNSUPPORTED_ARCHS = $(PPC_ARCHS)
-include ../../mk/spksrc.common.mk
-ifeq ($(findstring $(ARCH),$(ARMv5_ARCHS)),$(ARCH))
-BUILD_DEPENDS = native/go_1.23
-NATIVE_GO = native/go_1.23
-else
+# requires go >= 1.26.5
+UNSUPPORTED_ARCHS = $(PPC_ARCHS) $(ARMv5_ARCHS)
+
 BUILD_DEPENDS = native/go
-NATIVE_GO = native/go
-endif
 
-HOMEPAGE = https://min.io/
-COMMENT  = MinIO is a high performance object storage server compatible with Amazon S3 APIs.
+HOMEPAGE = https://github.com/gomasy/silo
+COMMENT  = Silo is a maintained fork of MinIO, a high performance object storage server compatible with Amazon S3 APIs.
 LICENSE  = AGPLv3.0
 
 POST_EXTRACT_TARGET = minio_post_extract

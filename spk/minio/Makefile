@@ -1,19 +1,19 @@
 SPK_NAME = minio
-SPK_VERS = 2025.10.15
-SPK_REV = 17
+SPK_VERS = 2026.08.04
+SPK_REV = 18
 SPK_ICON = src/minio.png
 DSM_UI_DIR = app
 
 DEPENDS = cross/minio cross/minio-client
 
-UNSUPPORTED_ARCHS = $(PPC_ARCHS)
+UNSUPPORTED_ARCHS = $(PPC_ARCHS) $(ARMv5_ARCHS)
 
-MAINTAINER = fgma
-DESCRIPTION = MinIO is a high performance object storage server compatible with Amazon S3 APIs. This Package includes the 'minio-client' \(mc\).
+MAINTAINER = gomasy
+DESCRIPTION = Silo is a maintained fork of MinIO, a high performance object storage server compatible with Amazon S3 APIs. This Package includes the 'minio-client' \(mc\).
 DISPLAY_NAME = MinIO
-CHANGELOG = "1. Update to MinIO RELEASE.2025-10-15T17-29-55Z (security fixes, including privilege escalation via STS/service accounts). <br/>2. FS-mode data from old installations cannot be read by newer versions. <br/>3. Upstream MinIO repository has been archived; no further releases are expected."
+CHANGELOG = "1. Switch upstream to gomasy/silo and pgsty/mc, maintained forks of MinIO and MinIO Client. <br/>2. Update to RELEASE.2026-08-04T00-00-00Z. <br/>3. Drop support for ARMv5 (requires go >= 1.26.5)."
 LICENSE_FILE = $(WORK_DIR)/src/github.com/minio/minio/LICENSE
-HOMEPAGE = https://min.io/
+HOMEPAGE = https://github.com/gomasy/silo
 LICENSE = AGPLv3.0
 
 WIZARDS_DIR = src/wizard
