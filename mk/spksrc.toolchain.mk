@@ -1,0 +1,245 @@
+###############################################################################
+# spksrc.toolchain.mk
+#
+# This makefile provides the complete toolchain build logic for spksrc.
+# It is responsible for:
+#  - downloading and extracting the toolchain
+#  - verifying checksums
+#  - applying normalization and patches
+#  - installing additional compiler components (rust)
+#  - resolving toolchain dependencies
+#  - generating tc_vars* files used by cross-compilation environments
+#
+# The toolchain build is organized as a staged pipeline with overridable
+# pre/post hooks and a persistent status cookie.
+#
+# Targets are executed in the following order:
+#  toolchain_msg
+#  pre_toolchain_target    (override with PRE_TOOLCHAIN_TARGET)
+#  toolchain_target        (override with TOOLCHAIN_TARGET)
+#  post_toolchain_target   (override with POST_TOOLCHAIN_TARGET)
+#
+# The actual work is performed by the internal target:
+#  _all
+#
+# which executes:
+#  status           : echo status to logging facility
+#  rustup-rustc     : rustup base install (host rustc/cargo)
+#  depend           : resolve and build toolchain dependencies -- including the overlay
+#                     consumers, which is how the binutils overlay is provisioned (it has
+#                     no build step of its own, only the warnings hung off tcvars)
+#  tcvars           : generate tc_vars*.mk files for spksrc.cross/env-default.mk, and warn
+#                     on a degraded overlay state (per-package, so not on _all directly)
+#
+# Variables:
+#  TC_NAME           : Toolchain name (optional, used with generic archs)
+#  TC_ARCH           : Target architecture (fallback if TC_NAME unset)
+#  TC_VERS           : Toolchain DSM version
+#  TC                : Fully qualified toolchain identifier (syno-<arch>-<vers>)
+#  TC_WORK_DIR       : Toolchain working directory
+#  TOOLCHAIN_COOKIE  : Status cookie indicating toolchain build completion
+#
+# Files:
+#  $(TC_WORK_DIR)/.$(COOKIE_PREFIX)toolchain_done
+#                     Marks successful completion of the toolchain build
+#  $(WORK_DIR)/tc_vars*.mk
+#                     Generated toolchain environment definitions used by
+#                     cross-env.mk and package builds
+#
+# Notes:
+#  - The toolchain target is idempotent: if the cookie exists, it is skipped.
+#  - Logging is centralized via RUNLOG and applied to the full build.
+#  - This makefile orchestrates modular logic implemented under
+#    mk/spksrc.toolchain/.
+#
+###############################################################################
+# Cross-compilation orchestration overview
+#
+# This makefile provides a two-stage cross-compilation pipeline.
+#
+# ┌──────────────────────────────────────────────────────────────────────┐
+# │                          cross-stage1                                │
+# │  (toolchain bootstrap & environment materialization)                 │
+# │                                                                      │
+# │   make -C toolchain/<TC> toolchain                                   │
+# │        │                                                             │
+# │        ▼                                                             │
+# │   [ toolchain build ]                                                │
+# │        │                                                             │
+# │        ├─ downloads / patches / rust / deps                          │
+# │        └─ generates tc_vars* files                                   │
+# │             │                                                        │
+# │             ├─ tc_vars.mk                (core toolchain identity)   │
+# │             ├─ tc_vars.autotools.mk      (autotools adapter)         │
+# │             ├─ tc_vars.flags.mk          (C/C++ flags)               │
+# │             ├─ tc_vars.rust.mk            (Rust env)                 │
+# │             ├─ tc_vars.cmake              (CMake toolchain file)     │
+# │             └─ tc_vars.meson-*            (Meson cross/native files) │
+# │                                                                      │
+# │   creates status cookie: $(WORK_DIR)/.stage1-tcvars_done             │
+# └──────────────────────────────────────────────────────────────────────┘
+#                                  │
+#                                  │ (cookie exists)
+#                                  ▼
+# ┌──────────────────────────────────────────────────────────────────────┐
+# │                          cross-stage2                                │
+# │  (package build using cross-env)                                     │
+# └──────────────────────────────────────────────────────────────────────┘
+#
+# Notes:
+#  - cross-stage1 is idempotent (guarded by .stage1-tcvars_done)
+#  - cross-stage2 never builds the toolchain
+#  - toolchain and package builds are strictly separated
+###############################################################################
+
+# Variables
+URLS                       = $(TC_DIST_SITE)/$(TC_DIST_NAME)
+NAME                       = $(TC_NAME)
+COOKIE_PREFIX              = toolchain-
+ifneq ($(strip $(TC_DIST_FILE)),)
+LOCAL_FILE                 = $(TC_DIST_FILE)
+# download.mk uses PKG_DIST_FILE
+PKG_DIST_FILE              = $(TC_DIST_FILE)
+else
+LOCAL_FILE                 = $(TC_DIST_NAME)
+endif
+DISTRIB_DIR                = $(TOOLCHAIN_DIR)/$(TC_VERS)
+DIST_FILE                  = $(DISTRIB_DIR)/$(LOCAL_FILE)
+DIST_EXT                   = $(TC_EXT)
+
+ifneq ($(strip $(or $(TC_NAME),$(TC_ARCH))),)
+TC_ARCH_SUFFIX = -$(or $(lastword $(subst -, ,$(TC_NAME))),$(TC_ARCH))-$(TC_VERS)
+else
+TC_ARCH_SUFFIX :=
+endif
+
+#####
+
+# Common directories
+
+### Include common definitions
+include ../../mk/spksrc.common.mk
+
+### Include common rules
+include ../../mk/spksrc.rules.mk
+
+#####
+
+# Mark toolchain installation as completed using status cookie
+TOOLCHAIN_COOKIE = $(TC_WORK_DIR)/.$(COOKIE_PREFIX)toolchain_done
+
+TC = syno$(TC_ARCH_SUFFIX)
+TC_WORK_DIR ?= $(abspath $(WORK_DIR)/../../../toolchain/$(TC)/work)
+
+# Define $(RUN) for other targets (download, extract, patch, etc)
+RUN = cd $(TC_WORK_DIR)/$(TC_TARGET) && env $(ENV)
+
+#####
+
+.PHONY: $(PRE_TOOLCHAIN_TARGET) $(TOOLCHAIN_TARGET) $(POST_TOOLCHAIN_TARGET)
+ifeq ($(strip $(PRE_TOOLCHAIN_TARGET)),)
+PRE_TOOLCHAIN_TARGET = pre_toolchain_target
+else
+$(PRE_TOOLCHAIN_TARGET): toolchain_msg
+endif
+ifeq ($(strip $(TOOLCHAIN_TARGET)),)
+TOOLCHAIN_TARGET = toolchain_target
+else
+$(TOOLCHAIN_TARGET): $(PRE_TOOLCHAIN_TARGET)
+endif
+ifeq ($(strip $(POST_TOOLCHAIN_TARGET)),)
+POST_TOOLCHAIN_TARGET = post_toolchain_target
+else
+$(POST_TOOLCHAIN_TARGET): $(TOOLCHAIN_TARGET)
+endif
+
+#####
+
+include ../../mk/spksrc.rules/depend.mk
+
+include ../../mk/spksrc.toolchain/tc-base.mk
+include ../../mk/spksrc.toolchain/tc-flags.mk
+include ../../mk/spksrc.toolchain/tc-url.mk
+include ../../mk/spksrc.toolchain/tc-versions.mk
+
+include ../../mk/spksrc.rules/status.mk
+
+download:
+include ../../mk/spksrc.build/download.mk
+
+checksum: download
+include ../../mk/spksrc.build/checksum.mk
+
+extract: checksum
+include ../../mk/spksrc.build/extract.mk
+
+normalize: extract
+include ../../mk/spksrc.toolchain/tc-normalize.mk
+
+patch: normalize
+include ../../mk/spksrc.build/patch.mk
+
+rustup-rustc: patch
+# The rust version this toolchain runs: the overlay's own PKG_VERS when the overlay is ACTIVE
+# (single source of truth, never hardcoded per base toolchain); otherwise left to env-rust.mk's
+# 'stable'. Availability/request/active are resolved in spksrc.common/overlay.mk.
+ifeq ($(OVERLAY_RUSTC_ON),1)
+TC_RUSTC := $(shell sed -n 's/^PKG_VERS[[:space:]]*=[[:space:]]*//p' $(firstword $(TC_OVERLAY_RUSTC))/Makefile)
+endif
+
+# Pull the rust overlay .txz via the consumer-dir DEPENDS -- whenever one ships, so the archive
+# is provisioned even with the overlay switched off.
+ifneq ($(strip $(TC_OVERLAY_RUSTC)),)
+DEPENDS += toolchain/$(notdir $(firstword $(TC_OVERLAY_RUSTC)))
+endif
+
+# OVERLAY_<component> family together, base layer first: overlay-binutils sets the
+# shim path / -B flag / RUST_LINK_VIA_BINUTILS that overlay-rustc + tc_vars read, and
+# overlay-rustc resolves TC_RUSTUP_TOOLCHAIN / RUST_TARGET that tc-rust then consumes.
+include ../../mk/spksrc.toolchain/overlay-binutils.mk
+include ../../mk/spksrc.toolchain/overlay-rustc.mk
+include ../../mk/spksrc.toolchain/tc-rust.mk
+
+include ../../mk/spksrc.toolchain/tc_vars.mk
+
+#####
+
+.DEFAULT_GOAL := toolchain
+
+.PHONY: toolchain_msg
+toolchain_msg:
+	@$(MSG) "Preparing toolchain for $(or $(lastword $(subst -, ,$(TC_NAME))),$(TC_ARCH))-$(TC_VERS)"
+
+pre_toolchain_target: toolchain_msg
+
+# _all's prerequisites are a SEQUENCE, not a set: rustup must be installed before the
+# consumers rustup-link in depend, and tcvars reads what overlay-rustc resolved. Left-to-right
+# order only holds serially, so pin it. Scoped to this instance -- recursively invoked makes
+# (every cross/ and spk/ build) keep their parallelism, and depend already loops serially.
+.NOTPARALLEL:
+
+# Define _all as a real target that does the work
+.PHONY: _all
+# No tcvars: the generated files belong to the build tree that asked for them, in its own
+# work dir, never to the toolchain shared by every tree (spksrc.common/stage0.mk).
+_all: status rustup-rustc depend
+
+# toolchain_target wraps _all with logging
+.PHONY: toolchain_target
+toolchain_target: $(PRE_TOOLCHAIN_TARGET)
+	$(call RUNLOG,_all)
+
+post_toolchain_target: $(TOOLCHAIN_TARGET)
+
+#####
+
+ifeq ($(wildcard $(TOOLCHAIN_COOKIE)),)
+toolchain: $(TOOLCHAIN_COOKIE)
+
+$(TOOLCHAIN_COOKIE): $(POST_TOOLCHAIN_TARGET)
+	$(create_target_dir)
+	@touch -f $@
+
+else
+toolchain: ;
+endif

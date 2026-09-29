@@ -1,0 +1,135 @@
+###############################################################################
+# spksrc.rules/pre-check.mk
+#
+# Common requirement checks
+#
+# Variables:
+#  BUILD_UNSUPPORTED_FILE  Set by github build action to collect
+#                          and suppress errors for unsupported packages.
+#  REQUIRED_MIN_DSM        Set to define minimal supported DSM version for a package.
+#  REQUIRED_MAX_DSM        Set to define maximal supported DSM version for a package.
+#  REQUIRED_MIN_SRM        Set to define minimal supported SRM version for a package.
+#  INSTALLER_SCRIPT        Used before introduction of generic installer. Not recommended anymore,
+#                          use SERVICE_SETUP instead, this includes support for DSM >= 7.
+#
+###############################################################################
+
+# Disabled for dependency targets, and for the check goal -- whose whole job is to REPORT
+# the gates this arch fails, which a fatal pre-check would cut short at the first one.
+ifeq ($(or $(filter 1,$(DEPENDENCY_WALK)),$(filter check,$(MAKECMDGOALS))),)
+
+# SPK_FOLDER    
+# name of the spk package folder
+# github status check does not rely on the (SPK) NAME but uses the folder name
+# required for packages that have folder name different to SPK_NAME (sonarr -> nzbget, mono_58 -> mono)
+SPK_FOLDER = $(notdir $(CURDIR))
+
+# Report a fatal pre-check, then stop. Three destinations, because each has a different
+# reader: the console, this package's own build log, and -- when CI sets it -- the
+# collected list of unsupported packages.
+#
+# The build log needs saying explicitly. $(error) fires at PARSE time, so no recipe ever
+# runs, and RUNLOG does its teeing from inside one: the log was left holding the
+# single "BUILDING package" line that build-arch-% writes before descending (#7393).
+#
+# The timestamp is $$(date), escaped, so the SHELL expands it. Written as $(date ...) it
+# was make expanding an undefined variable, and every collected line began with " - ".
+# Only when nobody above is teeing: through arch-% the real make error, line number and
+# all, already reaches the log. Synthesised in make's own shape rather than the "===>"
+# house style so the two are not confused -- minus the ":<line>", which make does not
+# expose to a makefile.
+define precheck_fatal
+$(if $(LOGGING_ENABLED),,$(shell echo "$(lastword $(MAKEFILE_LIST)): *** $(1).  Stop." >> $(DEFAULT_LOG)))
+$(if $(BUILD_UNSUPPORTED_FILE),$(shell echo "$$(date +'%Y.%m.%d %H:%M:%S') - $(SPK_FOLDER): $(1)" >> $(BUILD_UNSUPPORTED_FILE)))
+$(error $(1))
+endef
+
+# A package is disabled by dropping a BROKEN or DISABLED file in its folder
+# (both are treated identically).
+ifneq ($(strip $(wildcard BROKEN) $(wildcard DISABLED)),)
+  $(call precheck_fatal,$(NAME): Broken package)
+endif
+
+# Check for build for generic archs, these are not supporting by default 'require kernel'.
+# Unless building kernel modules where a package will contain multiple kernel sub-architectures and versions.
+ifneq ($(REQUIRE_KERNEL),)
+  ifeq ($(REQUIRE_KERNEL_MODULE),)
+    ifneq (,$(findstring $(ARCH),$(GENERIC_ARCHS)))
+      $(call precheck_fatal,Generic arch '$(ARCH)' cannot be used when REQUIRE_KERNEL is set unless using REQUIRE_KERNEL_MODULE)
+    endif
+  endif
+endif
+
+# Every gate in the tree, required ones only, as `make check-<arch>-<vers>` walks it: a
+# package is as blocked by a floor it never declared. ~ carries the spaces $(shell) eats.
+ifneq ($(strip $(ARCH))$(strip $(TCVERSION)),)
+_TREE_GATES := $(shell DEPENDENCY_WALK=1 $(MAKE) -s --no-print-directory dependency-unsupported \
+                   ARCH=$(ARCH) TCVERSION=$(TCVERSION) 2>/dev/null \
+                   | grep -E '^(cross|spk|diyspk|native|kernel)/' | sed 's/ /~/g')
+endif
+
+# What this package refuses on its own, then how much the tree adds.
+_own_why  = $(if $(strip $(TC_CAPABILITY_UNSUPPORTED)),: $(TC_CAPABILITY_UNSUPPORTED))
+_tree_why = $(if $(strip $(_TREE_GATES)), ($(words $(_TREE_GATES)) failed check(s) in the tree))
+
+# Refuse the arch, naming every gate rather than the first, so one run tells the whole story.
+ifneq ($(or $(strip $(TC_CAPABILITY_UNSUPPORTED)),$(strip $(_TREE_GATES))),)
+  $(foreach _g,$(_TREE_GATES),$(info ===>  check: $(subst ~, ,$(_g))))
+  $(call precheck_fatal,Arch '$(ARCH)-$(TCVERSION)' is not supported by $(SPK_NAME)$(PKG_NAME)$(_own_why)$(_tree_why))
+endif
+
+# UNSUPPORTED_ARCHS says WHERE a package fails, never why, and is often added by an include
+# rather than by the package -- so whoever adds the archs adds UNSUPPORTED_ARCHS_REASON too.
+_unsupported_why = $(if $(strip $(UNSUPPORTED_ARCHS_REASON)), ($(strip $(UNSUPPORTED_ARCHS_REASON))))
+
+# Check whether package supports ARCH
+ifneq ($(UNSUPPORTED_ARCHS),)
+  ifneq (,$(findstring $(ARCH),$(UNSUPPORTED_ARCHS)))
+    $(call precheck_fatal,Arch '$(ARCH)' is not a supported architecture$(_unsupported_why))
+  endif
+endif
+
+ifneq ($(TCVERSION),)
+
+ifneq ($(UNSUPPORTED_ARCHS_TCVERSION),)
+  ifneq (,$(findstring $(ARCH)-$(TCVERSION),$(UNSUPPORTED_ARCHS_TCVERSION)))
+    $(call precheck_fatal,Arch '$(ARCH)-$(TCVERSION)' is not a supported architecture$(_unsupported_why))
+  endif
+endif
+
+ifeq ($(call version_ge, ${TCVERSION}, 7.0),1)
+  ifneq ($(strip $(INSTALLER_SCRIPT)),)
+    $(call precheck_fatal,INSTALLER_SCRIPT '$(INSTALLER_SCRIPT)' cannot be used for DSM ${TCVERSION})
+  endif
+endif
+
+# Check maximal DSM requirements of package
+ifneq ($(REQUIRED_MAX_DSM),)
+  ifeq ($(call version_ge, ${TCVERSION}, 3.0),1)
+    ifeq ($(call version_gt,$(TCVERSION),$(REQUIRED_MAX_DSM)),1)
+      $(call precheck_fatal,DSM Toolchain $(TCVERSION) is higher than $(REQUIRED_MAX_DSM))
+    endif
+  endif
+endif
+
+# Check minimum DSM requirements of package
+ifneq ($(REQUIRED_MIN_DSM),)
+  ifeq ($(call version_ge, ${TCVERSION}, 3.0),1)
+    ifeq ($(call version_lt,$(TCVERSION),$(REQUIRED_MIN_DSM)),1)
+      $(call precheck_fatal,DSM Toolchain $(TCVERSION) is lower than $(REQUIRED_MIN_DSM))
+    endif
+  endif
+endif
+
+# Check minimum SRM requirements of package
+ifneq ($(REQUIRED_MIN_SRM),)
+  ifeq ($(call version_lt, ${TCVERSION}, 3.0),1)
+    ifeq ($(call version_lt,$(TCVERSION),$(REQUIRED_MIN_SRM)),1)
+      $(call precheck_fatal,SRM Toolchain $(TCVERSION) is lower than $(REQUIRED_MIN_SRM))
+    endif
+  endif
+endif
+
+endif # ifneq ($(TCVERSION),)
+
+endif # ifeq (DEPENDENCY_WALK / check goal)

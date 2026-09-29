@@ -1,0 +1,186 @@
+###############################################################################
+# spksrc.common/macros.mk
+#
+# Defines generic GNU Make helper macros used across spksrc.
+#
+# This file:
+#  - provides version string comparison helpers
+#  - implements list and string de-duplication utilities
+#  - offers helpers to merge environment variable values
+#
+# Macros:
+#  version_le  : true if version A <= version B
+#  version_ge  : true if version A >= version B
+#  version_lt  : true if version A <  version B
+#  version_gt  : true if version A >  version B
+#
+#  uniq        : removes duplicate words while preserving order
+#  dedup       : de-duplicates delimiter-separated strings
+#  dedup-files : removes duplicate files while preserving order (via md5sum)
+#  merge       : merges environment variable values from input
+#
+#  dep_seen    : shell test, true when a dependency was already visited in a walk
+#
+# RUNLOG  : generic macro to call recipe execution using logging
+#
+# Notes:
+#  - Version comparisons rely on GNU sort (-V)
+#  - Some macros invoke /bin/bash for string processing
+#
+###############################################################################
+
+# Macro: Version Comparison
+version_le = $(shell if printf '%s\n' "$(1)" "$(2)" | sort -VC ; then echo 1; fi)
+version_ge = $(shell if printf '%s\n' "$(1)" "$(2)" | sort -VCr ; then echo 1; fi)
+version_lt = $(shell if [ "$(1)" != "$(2)" ] && printf "%s\n" "$(1)" "$(2)" | sort -VC ; then echo 1; fi)
+version_gt = $(shell if [ "$(1)" != "$(2)" ] && printf "%s\n" "$(1)" "$(2)" | sort -VCr ; then echo 1; fi)
+
+# Append $(2) to the comma-separated list $(1), or return $(1) when there is nothing to add.
+# Reasons accumulate rather than overwrite: an arch can miss several capabilities at once.
+comma_append = $(if $(strip $(2)),$(1)$(if $(strip $(1)),$(,) )$(2),$(1))
+
+# Macro: visit each dependency once per walk
+#
+#   for depend in $(DEPENDS) ; do $(call dep_seen,$(STAMP_DIR),$$depend) && continue ; ... ; done
+#
+# Shell test for a recipe walking dependencies through sub-makes. True when $(2) was
+# already visited in the walk whose stamps live in directory $(1); otherwise stamps it and
+# is false. Each sub-make is a full parse, and a tree shares most of its nodes: without
+# it gstreamer's plist walk visited zlib 132 times, for 67 distinct dependencies.
+#
+# The stamp is the dependency path with / -> __ (cross/zlib -> cross__zlib), created with
+# mkdir so that two parallel visitors cannot both claim it. No $(1), or no such directory:
+# always false, and every path is walked as before.
+dep_seen = { [ -d "$(1)" ] && ! mkdir "$(1)/$$(echo $(2) | sed 's|/|__|g')" 2>/dev/null ; }
+
+# Macro: locate a toolchain tool
+#
+#   $(call tc,gcc)   $(call tc,ar)   $(call tc,g++)
+#
+# Absolute path of a cross tool, honouring whichever overlay provides it. A package must
+# not build that path itself: an overlay lives somewhere else entirely
+# (<consumer>/work/install/usr/local/bin against the toolchain's <work>/<target>/bin) and
+# the gcc family carries a version suffix there, so $(TC_PATH)$(TC_PREFIX)gcc silently
+# resolves to the vendor compiler whenever an overlay is active.
+#
+# Falls back to TC_PATH, so the call is correct with no overlay and stays correct when one
+# is grafted on -- nothing to revisit in the packages. TC_OVERLAY_<c>_PATH is empty unless
+# that overlay is ACTIVE (spksrc.toolchain/tc_vars.mk).
+#
+# Needed by any build system that ignores CC/AR from the environment: ffmpeg takes its
+# compilers from --cross-prefix, and a handful of packages pass CC=/AR= on a make line.
+_tc_gcc_tools      = gcc g++ c++ cpp gfortran
+_tc_binutils_tools = ld as ar nm ranlib strip objdump objcopy readelf
+
+tc = $(strip \
+  $(if $(filter $(1),$(_tc_gcc_tools)),\
+    $(or $(TC_OVERLAY_GCC_PATH),$(TC_PATH))$(TC_PREFIX)$(1)$(TC_GCC_SUFFIX),\
+  $(if $(filter $(1),$(_tc_binutils_tools)),\
+    $(or $(TC_OVERLAY_BINUTILS_PATH),$(TC_PATH))$(TC_PREFIX)$(1),\
+    $(TC_PATH)$(TC_PREFIX)$(1))))
+
+# Macro: locate a host tool -- the native counterpart of tc above
+#
+#   $(call native,gcc)   $(call native,ar)
+#
+# Absolute path of a tool on the BUILD host, or the bare name when it is absent, so a
+# missing tool fails by its own name instead of as an empty command. command -v, not
+# which: the former is a POSIX shell builtin, the latter an external binary.
+native = $(or $(shell command -v $(1) 2>/dev/null),$(1))
+
+# Remove duplicate words within string while preserving order
+define uniq
+$(strip \
+  $(eval __seen :=) \
+  $(foreach f,$1, \
+    $(if $(filter $f,$(__seen)),, \
+      $(eval __seen += $f)$(f) \
+    ) \
+  ) \
+)
+endef
+
+# Macro: dedup
+#        removes duplicate entries from a specified delimiter,
+#        preserving the order of unique elements,
+#        and dropping empty elements (e.g. "::")
+dedup = $(shell /bin/bash -c '\
+    input="$$(echo "$1" | xargs)"; \
+    delimiter="$$(echo "$2" | xargs)"; \
+    printf "%s\n" "$$input" | \
+    tr "$$delimiter" "\n" | \
+    awk '\''NF && !seen[$$0]++ {print $$0}'\'' | \
+    tr "\n" "$$delimiter" | \
+    sed "s/$$delimiter$$//" \
+')
+
+# Macro: dedup-files
+#        Removes duplicate files from a list by comparing their content (md5sum),
+#        preserving the order of first occurrences and silently discarding
+#        subsequent files whose content has already been seen.
+#        Useful when the same patch may exist under multiple directories.
+#
+# Usage: $(call dedup-files,$(PATCHES))
+#
+# Note:  _seen_md5s and _deduped are reset at each call to avoid
+#        accumulation across multiple invocations.
+define dedup-files
+$(strip \
+  $(eval _seen_md5s :=) \
+  $(eval _deduped :=) \
+  $(foreach file,$(1), \
+    $(eval _md5 := $(shell md5sum $(file) | cut -d' ' -f1)) \
+    $(if $(filter $(_md5),$(_seen_md5s)), \
+      $(info ===> [DEDUP] Skipping duplicate content: $(file)), \
+      $(eval _seen_md5s += $(_md5)) \
+      $(eval _deduped += $(file)) \
+    ) \
+  ) \
+  $(_deduped) \
+)
+endef
+
+# Macro: merge
+#        merges multiple environment variable values from a given input string,
+#        inverting their order and separating them with a specified delimiter
+merge = $(shell /bin/bash -c '\
+    input="$$(echo "$1" | xargs)"; \
+    var_name="$$(echo "$2" | xargs)"; \
+    delimiter="$$(echo "$3" | xargs)"; \
+    echo "$$input" | \
+    grep -o "$$var_name=[^ ]*" | \
+    tac | \
+    sed "s/^$$var_name=//" | \
+    tr "\n" "$$delimiter" | \
+    sed "s/$$delimiter$$//" \
+')
+
+# Generic macro to call recipe execution using logging
+# Run $(1) under script(1) and tee everything into $(2), as a SHELL FRAGMENT usable
+# inside a larger recipe line -- unlike RUNLOG it neither prefixes @ nor exits on
+# failure, so the caller keeps its own status handling.
+#
+# script gives the command a pty, so its stdout AND stderr are teed: that is what puts a
+# parse-time $(error), and make's own "*** ... Stop.", in the log. Setting LOGGING_ENABLED
+# for the child makes this the only teeing level, so the inner RUNLOG stages take
+# their pass-through branch and nothing is written twice.
+define _runlog
+if [ -z "$$LOGGING_ENABLED" ]; then \
+    LOGGING_ENABLED=1 script -q -e -c "$(1)" /dev/null \
+        | tee >(sed -r "s/\x1B\[[0-9;]*[mK]//g; s/\r//g" >> "$(2)") ; \
+else \
+    $(1) ; \
+fi
+endef
+
+# The goal-shaped facade over _runlog: builds the make command itself, writes to
+# DEFAULT_LOG, and reports the failure. bash -o pipefail rather than `set -o pipefail`
+# because these call sites keep the default /bin/sh -e as their SHELL.
+define RUNLOG
+@bash -o pipefail -c '$(call _runlog,$(MAKE) -f $(firstword $(MAKEFILE_LIST)) $(1),$(DEFAULT_LOG))' || { \
+    $(MSG) $$(printf "%s MAKELEVEL: %02d, PARALLEL_MAKE: %s, ARCH: %s, NAME: %s - FAILED\n" \
+        "$$(date +%Y%m%d-%H%M%S)" $(MAKELEVEL) "$(PARALLEL_MAKE)" "$(ARCH)-$(TCVERSION)" "$(1)") \
+        | tee --append $(STATUS_LOG) ; \
+    exit 1 ; \
+}
+endef

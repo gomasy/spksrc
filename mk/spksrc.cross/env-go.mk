@@ -1,0 +1,78 @@
+###############################################################################
+# spksrc.cross/env-go.mk
+#
+# Configuration for go build
+#
+###############################################################################
+
+# Go has no upstream toolchain for 32-bit PowerPC: GOARCH covers ppc64 and ppc64le only.
+UNSUPPORTED_ARCHS += $(PPC_ARCHS)
+UNSUPPORTED_ARCHS_REASON := $(call comma_append,$(UNSUPPORTED_ARCHS_REASON),go has no 32-bit PowerPC target)
+
+GOOS = linux
+ifeq ($(strip $(CGO_ENABLED)),)
+  CGO_ENABLED = 0
+endif
+
+# to create static linked binaries set GO_STATIC_BINARIES = 1
+ifeq ($(strip $(GO_STATIC_BINARIES)),)
+  GO_STATIC_BINARIES = 0
+endif
+
+# Define GO_ARCH for go compiler
+ifeq ($(findstring $(ARCH),$(ARMv5_ARCHS)),$(ARCH))
+  GO_ARCH = arm
+  ENV += GOARM=5
+endif
+ifeq ($(findstring $(ARCH),$(ARMv7_ARCHS) $(ARMv7L_ARCHS)),$(ARCH))
+  GO_ARCH = arm
+  ENV += GOARM=7
+endif
+ifeq ($(findstring $(ARCH),$(ARMv8_ARCHS)),$(ARCH))
+  GO_ARCH = arm64
+endif
+ifeq ($(findstring $(ARCH),$(i686_ARCHS)),$(ARCH))
+  GO_ARCH = 386
+endif
+ifeq ($(findstring $(ARCH),$(x64_ARCHS)),$(ARCH))
+  GO_ARCH = amd64
+endif
+ifeq ($(GO_ARCH),)
+  # don't report error to use regular UNSUPPORTED_ARCHS logging
+  $(warning Unsupported ARCH $(ARCH))
+endif
+
+# Use -buildvcs=false to disable VCS stamping.
+GO_BUILD_ARGS += -buildvcs=false
+
+ifeq ($(strip $(GO_STATIC_BINARIES)),1)
+  GO_BUILD_ARGS += -no-upgrade
+endif
+
+ifeq ($(strip $(GOPATH)),)
+  # default use distrib folder 'go' as GOPATH to download dependencies only once
+  # For errors like "cannot find package <....> in any of:" you have to 
+  # provide GOPATH within $(WORK_DIR)
+  GOPATH=$(DISTRIB_DIR)/go
+endif
+
+ifeq ($(NATIVE_GO),)
+NATIVE_GO = native/go
+endif
+ENV += PATH=$(WORK_DIR)/../../../$(NATIVE_GO)/work-native/go/bin:$$PATH
+
+ENV += GOPATH=$(GOPATH)
+ENV += CGO_ENABLED=$(CGO_ENABLED)
+ENV += GOARCH=$(GO_ARCH)
+ENV += GOOS=$(GOOS)
+
+# Ensure downloaded mod are u+rw
+ENV += GOFLAGS=-modcacherw
+
+ifneq ($(strip $(GO_BIN_DIR)),)
+  GO_BUILD_ARGS := -o $(GO_BIN_DIR) $(GO_BUILD_ARGS)
+endif
+
+ifneq ($(strip $(GO_LDFLAGS)),)
+  GO_BUILD_ARGS += -ldflags "$(GO_LDFLAGS)"
+endif
