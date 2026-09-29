@@ -1,11 +1,16 @@
-TK_NAME = syno-aarch64
+TC_NAME = syno-aarch64
 
-TK_ARCH = rtd1296 rtd1619b armada37xx
-TK_VERS = 7.2
+TC_ARCH = rtd1296 rtd1619b armada37xx
+TC_VERS = 7.2
+TC_KERNEL = 4.4.302
+TC_GLIBC = 2.36
+TC_GCC = 12.2.0
+TC_BINUTILS = 2.38
 
-TK_DIST = rtd1296
+TC_DIST = rtd1296-gcc1220_glibc236_armv8-GPL
+TC_DIST_SITE_PATH = Realtek%20RTD129x%20Linux%204.4.302
 
-TK_TARGET = aarch64-unknown-linux-gnueabi
-TK_SYSROOT = $(TK_TARGET)/sysroot
+TC_TARGET = aarch64-unknown-linux-gnu
+TC_SYSROOT = $(TC_TARGET)/sysroot
 
-include ../../mk/spksrc.toolkit.mk
+include ../../mk/spksrc.toolchain.mk
