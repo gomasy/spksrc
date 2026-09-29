@@ -6,11 +6,10 @@ LABEL vcs-url="https://github.com/SynoCommunity/spksrc"
 
 ENV LANG C.UTF-8
 
-# Manage i386 arch, add backport channel (kept for later use, e.g. -t trixie-backports),
+# Add backport channel (kept for later use, e.g. -t trixie-backports),
 # install required packages (in sync with README.rst instructions) and clean up.
 # All in a single layer so that apt lists/caches do not remain in the image.
-RUN dpkg --add-architecture i386 && \
-	echo "deb http://deb.debian.org/debian trixie-backports main" > /etc/apt/sources.list.d/backports.list && \
+RUN echo "deb http://deb.debian.org/debian trixie-backports main" > /etc/apt/sources.list.d/backports.list && \
 	printf "Package: *\nPin: release a=trixie-backports\nPin-Priority: 100\n" > /etc/apt/preferences.d/99-backports && \
 	apt-get update && \
 	apt-get install --no-install-recommends -y \
