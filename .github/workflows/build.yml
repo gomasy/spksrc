@@ -16,8 +16,10 @@ jobs:
         package:
           - minio
         arch:
-          - x64-7.2
-          - aarch64-7.2
+          - x64-6.2.4
+          - x64-7.1
+          - aarch64-6.2.4
+          - aarch64-7.1
     steps:
       - uses: actions/checkout@v7
 
