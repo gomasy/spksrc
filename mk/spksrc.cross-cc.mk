@@ -58,7 +58,7 @@
 # │   spksrc.cross/env-default.mk                                                │
 # │        │                                                             │
 # │        ├─ loads tc_vars.mk (always)                                  │
-# │        ├─ loads tc_vars.<env>.mk based on DEFAULT_ENV                │
+# │        ├─ loads tc_vars.<env>.mk based on TC_VARS_ENV                │
 # │        ├─ exports TC_ENV into ENV                                    │
 # │        │                                                             │
 # │        └─ loads tk_vars.mk (optional)                                │
@@ -104,11 +104,13 @@ include ../../mk/spksrc.common.mk
 
 #####
 
+include ../../mk/spksrc.rules/depend.mk
+
 include ../../mk/spksrc.rules/pre-check.mk
 
 include ../../mk/spksrc.cross/env-default.mk
 
-include ../../mk/spksrc.rules/depend.mk
+include ../../mk/spksrc.rules/dependency.mk
 
 include ../../mk/spksrc.rules/status.mk
 

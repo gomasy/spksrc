@@ -102,9 +102,11 @@ SPK_FILE_NAME = $(PACKAGES_DIR)/$(SPK_NAME)_$(SPK_NAME_ARCH)-$(SPK_TCVERS)_$(SPK
 #####
 
 # Do not initialize any environment to avoid variable leakage.
-DEFAULT_ENV = none
+BUILD_SYSTEM = none
 
 #####
+
+include ../../mk/spksrc.rules/depend.mk
 
 include ../../mk/spksrc.rules/pre-check.mk
 
@@ -112,7 +114,7 @@ include ../../mk/spksrc.rules/pre-check.mk
 # we need this to setup the cross environment.
 include ../../mk/spksrc.cross/env-default.mk
 
-include ../../mk/spksrc.rules/depend.mk
+include ../../mk/spksrc.rules/dependency.mk
 
 copy: depend
 include ../../mk/spksrc.wheel.mk
@@ -232,7 +234,7 @@ ifneq ($(strip $(SUPPORTURL)),)
 	@echo support_url=\"$(SUPPORTURL)\" >> $@
 endif
 ifneq ($(strip $(INSTALL_DEP_SERVICES)),)
-	@echo install_dep_services=\"$(INSTALL_DEP_SERVICES)\" >> $@
+	@echo 'install_dep_services="$(subst ",,$(INSTALL_DEP_SERVICES))"' >> $@
 endif
 ifneq ($(strip $(START_DEP_SERVICES)),)
 	@echo start_dep_services=\"$(START_DEP_SERVICES)\" >> $@
@@ -292,7 +294,7 @@ ifneq ($(strip $(CHANGELOG)),)
 	@echo changelog=\"$(CHANGELOG)\" >> $@
 endif
 ifneq ($(strip $(SPK_DEPENDS)),)
-	@echo install_dep_packages=\"$(SPK_DEPENDS)\" >> $@
+	@echo 'install_dep_packages="$(subst ",,$(SPK_DEPENDS))"' >> $@
 endif
 ifneq ($(strip $(CONF_DIR)),)
 	@echo support_conf_folder=\"yes\" >> $@
@@ -542,7 +544,7 @@ TCVARS_DONE := $(WORK_DIR)/.stage1-tcvars_done
 TKVARS_DONE := $(WORK_DIR)/.stage1-tkvars_done
 
 .PHONY: spk-stage1
-# spk-meta-source (the meta SOURCE build loop) lives in spksrc.rules/depend.mk
+# spk-meta-source (the meta SOURCE build loop) lives in spksrc.rules/dependency.mk
 spk-stage1: $(TCVARS_DONE) $(TKVARS_DONE) spk-meta-source
 
 ifneq ($(strip $(TC)),)
@@ -602,7 +604,8 @@ clean-source: spkclean
 
 spkclean:
 	rm -fr work-*/.copy_done \
-	       work-*/.depend_done \
+	       work-*/.dependency_done \
+	       work-*/depend-*.mk \
 	       work-*/.icon_done \
 	       work-*/.md5sum_done* \
 	       work-*/.PLIST \
