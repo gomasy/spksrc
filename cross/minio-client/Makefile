@@ -1,8 +1,8 @@
 PKG_NAME = minio-client
 REAL_PKG_NAME = mc
-PKG_VERS = 2026-10-18T00-00-00Z
+PKG_VERS = 2026-10-25T00-00-00Z
 PKG_RELEASE_TAG = $(subst :,-,$(PKG_VERS))
-PKG_COMMIT_ID = fa3b8bf72458b9b5480c4da0ce63a4f224e058c8
+PKG_COMMIT_ID = dcc78d506f94e7c2323b642d48fbb600664f0586
 PKG_EXT = tar.gz
 PKG_DIST_PREFIX = RELEASE.$(PKG_RELEASE_TAG)
 PKG_DIST_NAME = $(PKG_DIST_PREFIX).$(PKG_EXT)
@@ -11,10 +11,10 @@ PKG_DIST_FILE = $(PKG_NAME)-$(PKG_DIST_NAME)
 EXTRACT_PATH = $(WORK_DIR)/src/github.com/$(REAL_PKG_NAME)
 PKG_DIR = $(REAL_PKG_NAME)-$(PKG_DIST_PREFIX)
 
-# requires go >= 1.27.2
+# requires go >= 1.27.3
 UNSUPPORTED_ARCHS = $(PPC_ARCHS) $(ARMv5_ARCHS)
 
-BUILD_DEPENDS = native/go
+MIN_GO_VERSION = 1.27.3
 
 HOMEPAGE = https://github.com/pgsty/mc
 COMMENT  = MinIO Client (mc) provides a modern alternative to UNIX commands like ls, cat, cp, mirror, diff, find etc. It supports filesystems and Amazon S3 compatible cloud storage service (AWS Signature v2 and v4).

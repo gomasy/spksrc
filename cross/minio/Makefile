@@ -1,7 +1,7 @@
 PKG_NAME = minio
-PKG_VERS = 2026-10-18T00-00-00Z
+PKG_VERS = 2026-10-25T00-00-00Z
 PKG_RELEASE_TAG = $(subst :,-,$(PKG_VERS))
-PKG_COMMIT_ID = 774f8512b846700dab78d7e8f96ce53bc11d1db5
+PKG_COMMIT_ID = d37552350177984a05332958efc52a31e4e62217
 PKG_EXT = tar.gz
 PKG_DIST_PREFIX = RELEASE.$(PKG_RELEASE_TAG)
 PKG_DIST_NAME = $(PKG_DIST_PREFIX).$(PKG_EXT)
@@ -10,10 +10,10 @@ PKG_DIST_FILE = $(PKG_NAME)-$(PKG_DIST_NAME)
 EXTRACT_PATH = $(WORK_DIR)/src/github.com/$(PKG_NAME)
 PKG_DIR = silo-$(PKG_DIST_PREFIX)
 
-# requires go >= 1.27.2
+# requires go >= 1.27.3
 UNSUPPORTED_ARCHS = $(PPC_ARCHS) $(ARMv5_ARCHS)
 
-BUILD_DEPENDS = native/go
+MIN_GO_VERSION = 1.27.3
 
 HOMEPAGE = https://github.com/gomasy/silo
 COMMENT  = Silo is a maintained fork of MinIO, a high performance object storage server compatible with Amazon S3 APIs.
