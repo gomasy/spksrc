@@ -1,6 +1,6 @@
 #!/bin/sh
 set -e
-PATHS="mk native/go toolchain/syno-x64-6.2.4 toolchain/syno-x64-7.1 toolchain/syno-aarch64-6.2.4 toolchain/syno-aarch64-7.1"
+PATHS="mk native/go-latest toolchain/syno-x64-6.2.4 toolchain/syno-x64-7.1 toolchain/syno-aarch64-6.2.4 toolchain/syno-aarch64-7.1"
 
 git fetch upstream master
 BASE=$(cat .upstream-base)
