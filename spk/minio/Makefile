@@ -1,6 +1,6 @@
 SPK_NAME = minio
-SPK_VERS = 2026.10.25
-SPK_REV = 21
+SPK_VERS = 2026.10.26
+SPK_REV = 22
 SPK_ICON = src/minio.png
 DSM_UI_DIR = app
 
@@ -11,7 +11,7 @@ UNSUPPORTED_ARCHS = $(PPC_ARCHS) $(ARMv5_ARCHS)
 MAINTAINER = gomasy
 DESCRIPTION = Silo is a maintained fork of MinIO, a high performance object storage server compatible with Amazon S3 APIs. This Package includes the 'minio-client' \(mc\).
 DISPLAY_NAME = MinIO
-CHANGELOG = "1. Update MinIO to RELEASE.2026-10-25T00-00-00Z. <br/>2. Update MinIO Client to RELEASE.2026-10-25T00-00-00Z."
+CHANGELOG = "1. Update MinIO to RELEASE.2026-10-26T00-00-00Z. <br/>2. Update MinIO Client to RELEASE.2026-10-26T00-00-00Z."
 LICENSE_FILE = $(WORK_DIR)/src/github.com/minio/minio/LICENSE
 HOMEPAGE = https://github.com/gomasy/silo
 LICENSE = AGPLv3.0
