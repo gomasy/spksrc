@@ -14,14 +14,15 @@
 #
 ###############################################################################
 
-# Disabled for dependency targets, and for the check goal -- whose whole job is to REPORT
-# the gates this arch fails, which a fatal pre-check would cut short at the first one.
-ifeq ($(or $(filter 1,$(DEPENDENCY_WALK)),$(filter check,$(MAKECMDGOALS))),)
+# Disabled for dependency targets, for the check goal -- whose whole job is to REPORT
+# the gates this arch fails, which a fatal pre-check would cut short at the first one --
+# and for download-wheels, which only downloads wheel sources and runs without an arch.
+ifeq ($(or $(filter 1,$(DEPENDENCY_WALK)),$(filter check download-wheels,$(MAKECMDGOALS))),)
 
 # SPK_FOLDER    
 # name of the spk package folder
 # github status check does not rely on the (SPK) NAME but uses the folder name
-# required for packages that have folder name different to SPK_NAME (sonarr -> nzbget, mono_58 -> mono)
+# required for packages that have folder name different to SPK_NAME (sonarr -> nzbget, mono-58 -> mono)
 SPK_FOLDER = $(notdir $(CURDIR))
 
 # Report a fatal pre-check, then stop. Three destinations, because each has a different
@@ -57,18 +58,24 @@ ifneq ($(REQUIRE_KERNEL),)
     ifneq (,$(findstring $(ARCH),$(GENERIC_ARCHS)))
       $(call precheck_fatal,Generic arch '$(ARCH)' cannot be used when REQUIRE_KERNEL is set unless using REQUIRE_KERNEL_MODULE)
     endif
+  else ifneq ($(TCVERSION),)
+    # A toolchain may come without its kernel (kernel/syno-<arch>-<version>)
+    ifeq ($(filter $(ARCH),$(GENERIC_ARCHS))$(filter $(ARCH)-$(TCVERSION),$(AVAILABLE_KERNEL)),)
+      $(call precheck_fatal,No kernel source for '$(ARCH)-$(TCVERSION)')
+    endif
   endif
 endif
 
 # Every gate in the tree, required ones only, as `make check-<arch>-<vers>` walks it: a
 # package is as blocked by a floor it never declared. ~ carries the spaces $(shell) eats.
 # Walked once per WORK_DIR: PRECHECK_TREE_DONE (exported once the tree passed) skips it for
-# every later parse into that WORK_DIR, all inside the tree already checked.
-ifneq ($(strip $(ARCH))$(strip $(TCVERSION)),)
+# every later parse into that WORK_DIR, all inside the tree already checked. Only once the
+# version is known: an ARCH the package forces (noarch) would be walked with none.
+ifneq ($(strip $(TCVERSION)),)
 ifneq ($(PRECHECK_TREE_DONE),$(WORK_DIR))
 _TREE_GATES := $(shell DEPENDENCY_WALK=1 $(MAKE) -s --no-print-directory dependency-unsupported \
                    ARCH=$(ARCH) TCVERSION=$(TCVERSION) 2>/dev/null \
-                   | grep -E '^(cross|spk|diyspk|native|python|kernel)/' | sed 's/ /~/g')
+                   | grep -E '^(cross|driver|spk|diyspk|native|python|kernel)/' | sed 's/ /~/g')
 endif
 endif
 
@@ -81,7 +88,7 @@ ifneq ($(or $(strip $(TC_CAPABILITY_UNSUPPORTED)),$(strip $(_TREE_GATES))),)
   $(foreach _g,$(_TREE_GATES),$(info ===>  check: $(subst ~, ,$(_g))))
   $(call precheck_fatal,Arch '$(ARCH)-$(TCVERSION)' is not supported by $(SPK_NAME)$(PKG_NAME)$(_own_why)$(_tree_why))
 endif
-ifneq ($(strip $(ARCH))$(strip $(TCVERSION)),)
+ifneq ($(strip $(TCVERSION)),)
 export PRECHECK_TREE_DONE := $(WORK_DIR)
 endif
 

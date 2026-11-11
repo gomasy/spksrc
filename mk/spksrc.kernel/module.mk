@@ -18,7 +18,19 @@
 # Variables:
 #   ARCH                     architecture being built
 #   GENERIC_ARCHS            generic arch groups (e.g., armv7, aarch64, x64)
-#   REQUIRE_KERNEL_MODULE    list of modules to compile
+#   REQUIRE_KERNEL_MODULE    list of modules to compile, each
+#                            CONFIG_<option>:<source dir>:<module>[:CONFIG_<needed>]
+#                            the module being skipped on a kernel without the
+#                            optional CONFIG_<needed>=y it relies on, and on a
+#                            kernel that does not offer CONFIG_<option>, or the
+#                            source dir (a driver moved between kernels is listed
+#                            once per dir)
+#   REQUIRE_KERNEL_OPTION    CONFIG_<option>=y|m|n set before the modules: the menus
+#                            they sit in, or, =n, a built-in option the modules must
+#                            not turn on, as it changes the running kernel's
+#                            structures: left as the kernel has it (a def_bool y
+#                            hiding it is dropped), and an error if olddefconfig
+#                            turns it on
 #   STAGING_INSTALL_PREFIX   full install path for compiled modules
 #   WORK_DIR                 base directory for compilation
 #   PKG_DIR                  extracted kernel source directory
@@ -71,9 +83,29 @@ pre_kernel_module_target: kernel_module_msg
 kernel_module_prepare:
 	@$(MSG) "DISTRIB_DIR = $(DISTRIB_DIR)"
 	@$(MSG) "Prepare kernel source for module build"
+	@cp $(WORK_DIR)/$(PKG_DIR)/.config $(WORK_DIR)/$(PKG_DIR)/.config.kernel
+	@# Option names keep their case (MT76x0U) where scripts/config can
+	@grep -q -- --keep-case $(WORK_DIR)/$(PKG_DIR)/scripts/config && echo --keep-case > $(WORK_DIR)/$(PKG_DIR)/.config.case || : > $(WORK_DIR)/$(PKG_DIR)/.config.case
+	@for option in $(REQUIRE_KERNEL_OPTION); \
+	do \
+	  case $${option#*=} in \
+	    y) flag=--enable ;; \
+	    m) flag=--module ;; \
+	    *) grep -q "^$${option%%=*}=" $(WORK_DIR)/$(PKG_DIR)/.config.kernel && continue ; flag=--disable ;; \
+	  esac ; \
+	  cd $(WORK_DIR)/$(PKG_DIR); scripts/config $$(cat .config.case) $$flag $${option%%=*} ; \
+	  if [ "$$flag" = "--disable" ]; then \
+	    name=$${option%%=*} ; \
+	    for kconfig in $$(grep -rl --include='Kconfig*' "^config $${name#CONFIG_}$$" . ) ; do \
+	      awk -v opt="config $${name#CONFIG_}" '/^(menu)?config /{blk=($$0==opt)} blk && /^[ \t]+def_bool y/{sub(/def_bool y.*/,"bool")} {print}' $$kconfig > $$kconfig.tmp && mv $$kconfig.tmp $$kconfig ; \
+	    done ; \
+	  fi ; \
+	done
 	@for module in $(REQUIRE_KERNEL_MODULE); \
 	do \
-	  cd $(WORK_DIR)/$(PKG_DIR); scripts/config --module $${module%%:*} ; \
+	  needed=$$(echo $$module | cut -s -d: -f4) ; \
+	  if [ -n "$$needed" ] && ! grep -q "^$$needed=y" $(WORK_DIR)/$(PKG_DIR)/.config.kernel ; then continue ; fi ; \
+	  cd $(WORK_DIR)/$(PKG_DIR); scripts/config $$(cat .config.case) --module $${module%%:*} ; \
 	done
 # olddefconfig is not available on kernels < 3.8
 ifeq ($(call version_lt, ${TC_KERNEL}, 3.8),1)
@@ -83,6 +115,15 @@ else
 	@$(MSG) "make olddefconfig for kernel $(TC_KERNEL)"
 	@$(RUN) $(MAKE) olddefconfig
 endif
+	@for option in $(filter %=n,$(REQUIRE_KERNEL_OPTION)); \
+	do \
+	  if grep -q "^$${option%%=*}=" $(WORK_DIR)/$(PKG_DIR)/.config && ! grep -q "^$${option%%=*}=" $(WORK_DIR)/$(PKG_DIR)/.config.kernel ; then \
+	    $(MSG) "ERROR: $${option%%=*} is off in this kernel, but the modules asked for select it" ; \
+	    exit 1 ; \
+	  fi ; \
+	done
+	@$(MSG) "Built-in options the modules turned on: $$(grep '=y$$' $(WORK_DIR)/$(PKG_DIR)/.config | grep -v -x -F -f $(WORK_DIR)/$(PKG_DIR)/.config.kernel | tr '\n' ' ')"
+	@$(MSG) "Built-in options the modules turned off: $$(grep '=y$$' $(WORK_DIR)/$(PKG_DIR)/.config.kernel | grep -v -x -F -f $(WORK_DIR)/$(PKG_DIR)/.config | tr '\n' ' ')"
 	@if [ -f $(WORK_DIR)/$(PKG_DIR)/tools/lib/subcmd/Makefile ]; then \
 	  $(MSG) "- Disable gcc warnings as error in ./tools/lib/subcmd/Makefile (5.x kernels)." ; \
 	  sed "s/-Wall //" -i.bak $(WORK_DIR)/$(PKG_DIR)/tools/lib/subcmd/Makefile ; \
@@ -92,22 +133,59 @@ endif
 	  echo "all:" > $(WORK_DIR)/$(PKG_DIR)/tools/objtool/Makefile ; \
 	fi
 	@$(RUN) $(MAKE) modules_prepare
+	@# powerpc links every module with crtsavres.o, which older modules_prepare skip
+	@if grep -q "^CONFIG_PPC=y" $(WORK_DIR)/$(PKG_DIR)/.config ; then \
+	  $(RUN) $(MAKE) arch/powerpc/lib/crtsavres.o ; \
+	fi
 
 .PHONY: kernel_module_target
 kernel_module_target:  $(PRE_KERNEL_MODULE_TARGET) kernel_module_prepare
 	@$(MSG) Compile kernel modules $(REQUIRE_KERNEL_MODULE)
-	@for module in $(REQUIRE_KERNEL_MODULE); \
+	@wanted="" ; \
+	for module in $(REQUIRE_KERNEL_MODULE); \
 	do \
-	  $(MAKE) kernel_module_compile module=$$module ; \
+	  option=$${module%%:*} ; \
+	  if ! grep -q "^$$option=m" $(WORK_DIR)/$(PKG_DIR)/.config ; then \
+	    $(MSG) "Skip kernel module $$(echo $$module | cut -d: -f3): this kernel has no $$option, or not what it needs" ; \
+	    continue ; \
+	  fi ; \
+	  if [ ! -d $(WORK_DIR)/$(PKG_DIR)/$$(echo $$module | cut -d: -f2) ]; then \
+	    $(MSG) "Skip kernel module $$(echo $$module | cut -d: -f3): no $$(echo $$module | cut -d: -f2) in this kernel" ; \
+	    continue ; \
+	  fi ; \
+	  needed=$$(echo $$module | cut -s -d: -f4) ; \
+	  if [ -n "$$needed" ] && ! grep -q "^$$needed=y" $(WORK_DIR)/$(PKG_DIR)/.config.kernel ; then \
+	    $(MSG) "Skip kernel module $$(echo $$module | cut -d: -f3): the kernel has no $$needed" ; \
+	    continue ; \
+	  fi ; \
+	  wanted="$$wanted $$module" ; \
+	done ; \
+	: > $(WORK_DIR)/$(PKG_DIR)/modules.symvers ; \
+	for dir in $$(for module in $$wanted; do echo $$module | cut -d: -f2; done | awk '!seen[$$0]++'); \
+	do \
+	  $(MAKE) kernel_module_compile moddir=$$dir || exit 1 ; \
+	done ; \
+	for module in $$wanted; \
+	do \
+	  $(MAKE) kernel_module_install module=$$module || exit 1 ; \
 	done
 
+# Once per directory: kernel_module_prepare enabled every option in .config, so a
+# single build makes all the modules of a directory. modules.symvers gathers the
+# symbols of the directories built before, for the depends= of the next ones and
+# of the drivers built against this kernel.
 .PHONY: kernel_module_compile
 kernel_module_compile:
-	@$(MSG) Compile kernel module module=$(module)
-	@$(RUN) LDFLAGS="" $(MAKE) -C $(WORK_DIR)/$(PKG_DIR) M=$(word 2,$(subst :, ,$(module))) $(firstword $(subst :, ,$(module)))=m OBJECT_FILES_NON_STANDARD=y modules
-	@$(RUN) cat $(word 2,$(subst :, ,$(module)))/modules.order >> $(WORK_DIR)/$(PKG_DIR)/modules.order
+	@$(MSG) Compile kernel modules in $(moddir)
+	@$(RUN) LDFLAGS="" $(MAKE) -C $(WORK_DIR)/$(PKG_DIR) M=$(moddir) OBJECT_FILES_NON_STANDARD=y \
+	  KBUILD_EXTRA_SYMBOLS=$(WORK_DIR)/$(PKG_DIR)/modules.symvers modules
+	@$(RUN) cat $(moddir)/modules.order >> $(WORK_DIR)/$(PKG_DIR)/modules.order
+	@cat $(WORK_DIR)/$(PKG_DIR)/$(moddir)/Module.symvers >> $(WORK_DIR)/$(PKG_DIR)/modules.symvers
+
+.PHONY: kernel_module_install
+kernel_module_install:
 	install -d $(STAGING_INSTALL_PREFIX)/lib/modules/$(subst syno-,,$(NAME))/$(TC_KERNEL)/$(word 2,$(subst :, ,$(module)))
-	install -m 644 $(WORK_DIR)/$(PKG_DIR)/$(word 2,$(subst :, ,$(module)))/$(lastword $(subst :, ,$(module))).ko $(STAGING_INSTALL_PREFIX)/lib/modules/$(subst syno-,,$(NAME))/$(TC_KERNEL)/$(word 2,$(subst :, ,$(module)))
+	install -m 644 $(WORK_DIR)/$(PKG_DIR)/$(word 2,$(subst :, ,$(module)))/$(word 3,$(subst :, ,$(module))).ko $(STAGING_INSTALL_PREFIX)/lib/modules/$(subst syno-,,$(NAME))/$(TC_KERNEL)/$(word 2,$(subst :, ,$(module)))
 
 post_kernel_module_target: $(KERNEL_MODULE_TARGET)
 

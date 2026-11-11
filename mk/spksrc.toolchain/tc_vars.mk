@@ -21,7 +21,7 @@
 #  $(WORK_DIR)/tc_vars.autotools.mk
 #      Autotools cross-compilation variables (CC, CFLAGS, SYSROOT, …)
 #  $(WORK_DIR)/tc_vars.flags.mk
-#      Raw compiler and linker flags
+#      Raw compiler and linker flags, and the toolchain's own TC_EXTRA_*FLAGS
 #  $(WORK_DIR)/tc_vars.rust.mk
 #      Rust / Cargo environment variables
 #  $(WORK_DIR)/tc_vars.cmake
@@ -359,7 +359,7 @@ endif
 #
 # What was missing is the other axis, the build machine, which autoconf spells *_FOR_BUILD
 # and reads for a generator a package compiles and runs during the build. Having no name
-# for it, each package that needs one invented its own: cross/bind_9.* says BUILD_CC,
+# for it, each package that needs one invented its own: cross/bind-9.* says BUILD_CC,
 # cross/cyrus-sasl patches CC_FOR_BUILD into a Makefile.in, cross/ffmpeg* passes
 # --host-cc. The standard names are emitted here once, so a package can ask instead of
 # improvise. The flags are empty on purpose, as HOST_CFLAGS is in the rust fragment above:
@@ -390,8 +390,17 @@ tc_autotools_vars:
 	echo TC_ENV += LDFLAGS_FOR_BUILD=\"\"
 
 .PHONY: tc_flags
+# The toolchain's own flags first, as declared -- already folded into the ones below, and read
+# again where the CMake toolchain file and the meson cross file list them per language.
 tc_flags:
-	@echo CFLAGS := $(CFLAGS) $(OVERLAY_BINUTILS_FLAG) $$\(GCC_DEBUG_FLAGS\) $$\(ADDITIONAL_CFLAGS\) ; \
+	@echo TC_EXTRA_BUILD_FLAGS := $(TC_EXTRA_BUILD_FLAGS) ; \
+	echo TC_EXTRA_CFLAGS := $(TC_EXTRA_CFLAGS) ; \
+	echo TC_EXTRA_CPPFLAGS := $(TC_EXTRA_CPPFLAGS) ; \
+	echo TC_EXTRA_CXXFLAGS := $(TC_EXTRA_CXXFLAGS) ; \
+	echo TC_EXTRA_FFLAGS := $(TC_EXTRA_FFLAGS) ; \
+	echo TC_EXTRA_LDFLAGS := $(TC_EXTRA_LDFLAGS) ; \
+	echo TC_EXTRA_RUSTFLAGS := $(if $(OVERLAY_RUSTC_ON),,$(TC_EXTRA_RUSTFLAGS)) ; \
+	echo CFLAGS := $(CFLAGS) $(OVERLAY_BINUTILS_FLAG) $$\(GCC_DEBUG_FLAGS\) $$\(ADDITIONAL_CFLAGS\) ; \
 	echo CPPFLAGS := $(CPPFLAGS) $$\(GCC_DEBUG_FLAGS\) $$\(ADDITIONAL_CPPFLAGS\) ; \
 	echo CXXFLAGS := $(CXXFLAGS) $(OVERLAY_BINUTILS_FLAG) $$\(GCC_DEBUG_FLAGS\) $$\(ADDITIONAL_CXXFLAGS\) ; \
 	if [ -n "$(TC_HAS_FORTRAN)" ]; then \
@@ -430,13 +439,6 @@ tc_vars:
 	echo TC_PATH := $(TC_PATH) ; \
 	echo TC_INCLUDE := $(TC_INCLUDE) ; \
 	echo TC_LIBRARY := $(TC_LIBRARY) ; \
-	echo TC_EXTRA_BUILD_FLAGS := $(TC_EXTRA_BUILD_FLAGS) ; \
-	echo TC_EXTRA_CFLAGS := $(TC_EXTRA_CFLAGS) ; \
-	echo TC_EXTRA_CPPFLAGS := $(TC_EXTRA_CPPFLAGS) ; \
-	echo TC_EXTRA_CXXFLAGS := $(TC_EXTRA_CXXFLAGS) ; \
-	echo TC_EXTRA_FFLAGS := $(TC_EXTRA_FFLAGS) ; \
-	echo TC_EXTRA_LDFLAGS := $(TC_EXTRA_LDFLAGS) ; \
-	echo TC_EXTRA_RUSTFLAGS := $(if $(OVERLAY_RUSTC_ON),,$(TC_EXTRA_RUSTFLAGS)) ; \
 	echo TC_VERS := $(TC_VERS) ; \
 	echo TC_BUILD := $(TC_BUILD) ; \
 	echo TC_OS_MIN_VER := $(TC_OS_MIN_VER) ; \
@@ -458,10 +460,21 @@ endif
 
 #####
 
+# The declared TC_SYSROOT has to be the sysroot the toolchain's gcc searches: every -I/-L,
+# SYSROOT and the CMake find root are built on it. Checked here, once gcc exists -- stage0
+# writes tc_vars.mk before it does. LC_ALL=C for the DSM 5.2 gcc.
+.PHONY: tcvars-sysroot-check
+tcvars-sysroot-check:
+	@gcc_sysroot=$$(LC_ALL=C $(TC_WORK_DIR)/$(TC_TARGET)/bin/$(TC_PREFIX)gcc -print-sysroot 2>/dev/null) ; \
+	test -n "$$gcc_sysroot" && \
+	  test "$$(realpath -m "$$gcc_sysroot")" = "$$(realpath -m "$(TC_WORK_DIR)/$(TC_TARGET)/$(TC_SYSROOT)")" || \
+	  { echo "TC_SYSROOT = $(TC_SYSROOT) is not the sysroot $(TC_PREFIX)gcc reports: $${gcc_sysroot:-none}" >&2 ; exit 1 ; }
+
 ifeq ($(wildcard $(TCVARS_COOKIE)),)
 tcvars: overlay-binutils-warn overlay-rustc-warn generate_tc_vars_mk generate_tc_vars_other $(TCVARS_COOKIE)
 
-$(TCVARS_COOKIE): $(POST_TCVARS_TARGET)
+# The check before the cookie: a failed one is not skipped next time.
+$(TCVARS_COOKIE): tcvars-sysroot-check $(POST_TCVARS_TARGET)
 	$(create_target_dir)
 	@touch -f $@
 
