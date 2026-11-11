@@ -13,8 +13,6 @@ PKG_DIR = silo-$(PKG_DIST_PREFIX)
 # requires go >= 1.27.3
 UNSUPPORTED_ARCHS = $(PPC_ARCHS) $(ARMv5_ARCHS)
 
-MIN_GO_VERSION = 1.27.3
-
 HOMEPAGE = https://github.com/gomasy/silo
 COMMENT  = Silo is a maintained fork of MinIO, a high performance object storage server compatible with Amazon S3 APIs.
 LICENSE  = AGPLv3.0

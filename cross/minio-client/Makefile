@@ -14,8 +14,6 @@ PKG_DIR = $(REAL_PKG_NAME)-$(PKG_DIST_PREFIX)
 # requires go >= 1.27.3
 UNSUPPORTED_ARCHS = $(PPC_ARCHS) $(ARMv5_ARCHS)
 
-MIN_GO_VERSION = 1.27.3
-
 HOMEPAGE = https://github.com/pgsty/mc
 COMMENT  = MinIO Client (mc) provides a modern alternative to UNIX commands like ls, cat, cp, mirror, diff, find etc. It supports filesystems and Amazon S3 compatible cloud storage service (AWS Signature v2 and v4).
 LICENSE  = AGPLv3.0
